@@ -1,12 +1,14 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import "regenerator-runtime/runtime";
+import Tesseract from "tesseract.js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FaMicrophone } from "react-icons/fa";
 import { FaUpload } from "react-icons/fa6";
 import { IoSend } from "react-icons/io5";
 import { HiOutlineSpeakerWave } from "react-icons/hi2";
+import { MdClose } from "react-icons/md";
 import SpeechRecognition, {
   useSpeechRecognition,
 } from "react-speech-recognition";
@@ -18,6 +20,8 @@ import {
 
 export default function Home() {
   const [input, setInput] = useState("");
+
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [conversation, setConversation] = useState([
     {
       role: "gpt",
@@ -26,16 +30,29 @@ export default function Home() {
     },
   ]);
 
-  // State to store the last GPT response
-
   const { transcript, listening, resetTranscript } = useSpeechRecognition();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const handleSend = async () => {
     const finalInput = input.trim() || transcript.trim();
 
-    if (!finalInput) return;
+    if (!finalInput && !selectedImage) return;
 
-    const userMessage = { role: "user", content: `Pavel: ${finalInput}` };
+    let ocrText = "";
+
+    if (selectedImage) {
+      try {
+        const { data } = await Tesseract.recognize(selectedImage, "eng");
+        ocrText = data.text.trim();
+      } catch (error) {
+        console.error("OCR Error:", error);
+      }
+    }
+
+    const combinedInput = `${finalInput} ${ocrText}`.trim();
+    if (!combinedInput) return;
+
+    const userMessage = { role: "user", content: `Pavel: ${combinedInput}` };
     const updatedConversation = [...conversation, userMessage];
 
     const url =
@@ -75,11 +92,12 @@ export default function Home() {
 
     setInput("");
     resetTranscript();
+    setSelectedImage(null);
   };
 
   const speak = (text: string) => {
     const speech = new SpeechSynthesisUtterance(text);
-    speech.lang = "en-US"; // Set the language
+    speech.lang = "en-US";
     window.speechSynthesis.speak(speech);
   };
 
@@ -90,6 +108,22 @@ export default function Home() {
     } else {
       SpeechRecognition.startListening();
     }
+  };
+
+  const handleFileSelect = () => {
+    if (fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setSelectedImage(URL.createObjectURL(file));
+    }
+  };
+  const handleRemoveImage = () => {
+    setSelectedImage(null);
   };
 
   return (
@@ -105,9 +139,9 @@ export default function Home() {
             >
               {msg.content}
             </p>
-            {msg.role === "gpt" && ( // Show the speaker button next to GPT responses
+            {msg.role === "gpt" && (
               <button
-                onClick={() => speak(msg.content.replace(/^GPT: /, ""))} // Speak the specific GPT response
+                onClick={() => speak(msg.content.replace(/^GPT: /, ""))}
                 className="ml-2 text-xl text-gray-600"
               >
                 <HiOutlineSpeakerWave />
@@ -126,8 +160,23 @@ export default function Home() {
               value={input || transcript}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Enter Prompt Here"
-              className="w-full"
+              className="w-full pr-20" // Add padding to make space for the image
             />
+            {selectedImage && (
+              <div className="absolute right-[2rem] top-1/2 transform -translate-y-1/2 flex items-center">
+                <img
+                  src={selectedImage}
+                  alt="Selected"
+                  className="w-8 h-8 border-[1px] border-gray-300 object-cover rounded"
+                />
+                <button
+                  onClick={handleRemoveImage}
+                  className="-mt-7 -ms-2 text-red-500 text-md"
+                >
+                  <MdClose />
+                </button>
+              </div>
+            )}
             <div className="relative">
               <HoverCard>
                 <HoverCardTrigger asChild>
@@ -149,14 +198,23 @@ export default function Home() {
               </HoverCard>
             </div>
           </div>
+
           <div className="mx-3">
             <Button
               variant="outline"
               size="icon"
               className="border-muted-foreground"
+              onClick={handleFileSelect}
             >
               <FaUpload className="h-4 w-4" />
             </Button>
+            <input
+              type="file"
+              ref={fileInputRef}
+              style={{ display: "none" }}
+              accept="image/*"
+              onChange={handleFileChange}
+            />
           </div>
           <div>
             <Button
